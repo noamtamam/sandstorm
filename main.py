@@ -8,8 +8,9 @@ from map import *
 from matplotlib.ticker import MultipleLocator
 from tqdm import tqdm
 def get_data():
+    start_time = datetime.now()
     mounth_ds = []
-    for day in tqdm(range(1, 3), desc="Fetching Datasets", unit="day"):
+    for day in tqdm(range(1, 31), desc="Fetching Datasets", unit="day"):
         two_digit_day = str(day).zfill(2)
         opendap_url = f"dust.aemet.es/thredds/dodsC/dataRoot/{MODEL}/{YEAR}/{MONTH}/" \
                       f"{YEAR}{MONTH}{two_digit_day}{model_code}.nc"
@@ -19,38 +20,23 @@ def get_data():
         start_datetime = datetime(YEAR, MONTH, day, HOUR_START, 0, 0)
         end_datetime = pd.to_timedelta(23, unit="h") + start_datetime
         ds = ds.sel(time=slice(start_datetime, end_datetime))
-        ds = ds.where((ds.lat >= SOUTH_END_POINT) & (ds.lat <= NORTH_END_POINT) &
-                      (ds.lon >= WEST_END_POINT) & (ds.lon <= EAST_END_POINT), drop=True)
-        mounth_ds.append(ds)
-        # print("S ", day)
 
-        # ds = ds[[DRY_DUST, WET_DUST]]
-        # start_datetime = datetime(YEAR, MONTH, day, HOUR_START, 0, 0)
-        # end_datetime = pd.to_timedelta(23, unit="h") + start_datetime
-        # # Convert seconds to datetime
-
-        # if not np.issubdtype(ds.coords["time"].dtype, np.datetime64):
-        #     new_time = pd.to_timedelta(ds["time"], unit="h") + start_datetime
-        #     ds = ds.assign_coords(time=new_time)
-        # # cut data only for 1 day
-        # ds = ds.sel(time=slice(start_datetime, end_datetime))
-        # # cut data inside dimensions
+        nearest_data = ds.sel(lat=specific_lat, lon=specific_lon, method="nearest")
         # ds = ds.where((ds.lat >= SOUTH_END_POINT) & (ds.lat <= NORTH_END_POINT) &
         #               (ds.lon >= WEST_END_POINT) & (ds.lon <= EAST_END_POINT), drop=True)
-        # change to interplation!!!!!!
-        # ds_resampled = ds.interp(lat=new_lat, lon=new_lon)
+        mounth_ds.append(nearest_data)
     aligned_datasets = xr.align(*mounth_ds, join="outer")  # or "inner"
     combined_ds = xr.concat(aligned_datasets, dim="time")
-    return combined_ds
+    end_time = datetime.now()
+    execution_time = (end_time - start_time).total_seconds()
+    print(f"Execution time: {execution_time} seconds")
+    dry_dust_data = combined_ds[DRY_DUST].values
+    wet_dust_data = combined_ds[WET_DUST].values
+    time = combined_ds["time"].values
+    return dry_dust_data, wet_dust_data, time
 
-def plot_graph(ds, specific_lat, specific_lon):
-    dry_dust_data = ds[DRY_DUST].sel(lat=specific_lat, lon=specific_lon, method="nearest")
-    wet_dust_data = ds[WET_DUST].sel(lat=specific_lat, lon=specific_lon, method="nearest")
-    # Extract time and values
-    time =ds["time"].values
-    dry_values = dry_dust_data.values
-    wet_values = wet_dust_data.values
-    # Create a Plotly figure
+
+def plot_graph(dry_values, wet_values, time):
     fig = go.Figure()
 
     # Add dry dust bars
@@ -117,9 +103,9 @@ def show_map_choose_lat_lon():
 
 
 if __name__ == '__main__':
-    ds = get_data()
-    longitude, latitude = show_map_choose_lat_lon()
-    plot_graph(ds, latitude, longitude)
-    # print(ds)
+    dry_dust_data, wet_dust_data, time = get_data()
+    # longitude, latitude = show_map_choose_lat_lon()
+    plot_graph(dry_dust_data, wet_dust_data, time)
+
 
 

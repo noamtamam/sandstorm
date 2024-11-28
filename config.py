@@ -13,3 +13,5 @@ NORTH_END_POINT = 35.61
 WEST_END_POINT = 31.56
 SOUTH_END_POINT = 12.67
 EAST_END_POINT = 63.22
+
+specific_lat, specific_lon = 24.7, 55.4
