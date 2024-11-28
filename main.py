@@ -6,29 +6,21 @@ import plotly.graph_objects as go
 from config import *
 from map import *
 from matplotlib.ticker import MultipleLocator
-
-# subline = f'?var={DRY_DUST}&' \
-#           f'var={WET_DUST}' \
-          # f'north={NORTH_END_POINT}&' \
-          # f'west={WEST_END_POINT}&' \
-          # f'east={EAST_END_PIONT}&' \
-          # f'south={SOUTH_END_PIONT}&' \
-          # f'addLatLon=true'
-
-
-
+from tqdm import tqdm
 def get_data():
     mounth_ds = []
-    for day in range(1, 3):
+    for day in tqdm(range(1, 3), desc="Fetching Datasets", unit="day"):
         two_digit_day = str(day).zfill(2)
         opendap_url = f"dust.aemet.es/thredds/dodsC/dataRoot/{MODEL}/{YEAR}/{MONTH}/" \
-                      f"{YEAR}{MONTH}{two_digit_day}{model_code}.nc?" \
-                      f"{DRY_DUST},{WET_DUST},"\
-                      f"time[0:9]," \
-                      f"lat[{SOUTH_END_POINT}:{NORTH_END_POINT}]," \
-                      f"lon[{WEST_END_POINT}:{EAST_END_POINT}]"
+                      f"{YEAR}{MONTH}{two_digit_day}{model_code}.nc"
         url = f"https://{username}:{password}@{opendap_url}"
         ds = xr.open_dataset(url)
+        ds = ds[[DRY_DUST, WET_DUST]]
+        start_datetime = datetime(YEAR, MONTH, day, HOUR_START, 0, 0)
+        end_datetime = pd.to_timedelta(23, unit="h") + start_datetime
+        ds = ds.sel(time=slice(start_datetime, end_datetime))
+        ds = ds.where((ds.lat >= SOUTH_END_POINT) & (ds.lat <= NORTH_END_POINT) &
+                      (ds.lon >= WEST_END_POINT) & (ds.lon <= EAST_END_POINT), drop=True)
         mounth_ds.append(ds)
         # print("S ", day)
 
