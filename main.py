@@ -50,20 +50,7 @@ def get_monthly_data(month, year):
         except Exception as e:
             # Handle exceptions (e.g., network errors, missing files)
             print(f"Failed to process dataset for day {two_digit_day}: {e}")
-    # aligned_datasets = xr.align(*mounth_ds, join="outer")  # or "inner"
-    # combined_ds = xr.concat(aligned_datasets, dim="time")
     combined_df = pd.concat(mounth_ds, axis=0)
-    # end_time = datetime.now()
-    # execution_time = (end_time - start_time).total_seconds()
-    # print(f"Execution time: {execution_time} seconds")
-    # dry_dust_data = combined_ds[DRY_DUST].values
-    # wet_dust_data = combined_ds[WET_DUST].values
-    # time = combined_ds["time"].values
-    # df = pd.DataFrame({
-    #     f"{DRY_DUST}": dry_dust_data,
-    #     f"{WET_DUST}": wet_dust_data,
-    #     "total_dust": wet_dust_data + dry_dust_data
-    # }, index=time)
     return combined_df
 
 def get_data():
