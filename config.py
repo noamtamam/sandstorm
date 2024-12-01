@@ -1,8 +1,8 @@
 username = 'michael.gilmont'  # replace with your username
 password = 'Xeimae7u'  # replace with your password
 MODEL = 'MONARCH'
-YEAR = 2023
-MONTH = 10
+# YEAR = 2023
+# MONTH = 10
 # DAY = 31
 HOUR_START = 12
 DRY_DUST = "dust_depd"

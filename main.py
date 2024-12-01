@@ -7,48 +7,91 @@ from config import *
 from map import *
 from matplotlib.ticker import MultipleLocator
 from tqdm import tqdm
-def get_data():
-    start_time = datetime.now()
-    mounth_ds = []
-    for day in tqdm(range(1, 31), desc="Fetching Datasets", unit="day"):
-        two_digit_day = str(day).zfill(2)
-        opendap_url = f"dust.aemet.es/thredds/dodsC/dataRoot/{MODEL}/{YEAR}/{MONTH}/" \
-                      f"{YEAR}{MONTH}{two_digit_day}{model_code}.nc"
-        url = f"https://{username}:{password}@{opendap_url}"
+import concurrent.futures
+
+def fetch_dataset_with_timeout(url,year, month, day, timeout=10):
+    """Attempt to open a dataset with a timeout."""
+    def load_dataset():
         ds = xr.open_dataset(url)
         ds = ds[[DRY_DUST, WET_DUST]]
-        start_datetime = datetime(YEAR, MONTH, day, HOUR_START, 0, 0)
+        start_datetime = datetime(year, month, day, HOUR_START, 0, 0)
         end_datetime = pd.to_timedelta(23, unit="h") + start_datetime
         ds = ds.sel(time=slice(start_datetime, end_datetime))
-
         nearest_data = ds.sel(lat=specific_lat, lon=specific_lon, method="nearest")
-        # ds = ds.where((ds.lat >= SOUTH_END_POINT) & (ds.lat <= NORTH_END_POINT) &
-        #               (ds.lon >= WEST_END_POINT) & (ds.lon <= EAST_END_POINT), drop=True)
-        mounth_ds.append(nearest_data)
-    aligned_datasets = xr.align(*mounth_ds, join="outer")  # or "inner"
-    combined_ds = xr.concat(aligned_datasets, dim="time")
-    end_time = datetime.now()
-    execution_time = (end_time - start_time).total_seconds()
-    print(f"Execution time: {execution_time} seconds")
-    dry_dust_data = combined_ds[DRY_DUST].values
-    wet_dust_data = combined_ds[WET_DUST].values
-    time = combined_ds["time"].values
-    return dry_dust_data, wet_dust_data, time
+        dry_dust_data = nearest_data[DRY_DUST].values
+        wet_dust_data = nearest_data[WET_DUST].values
+        time = nearest_data["time"].values
+        df = pd.DataFrame({
+            f"{DRY_DUST}": dry_dust_data,
+            f"{WET_DUST}": wet_dust_data,
+            "total_dust": wet_dust_data + dry_dust_data
+        }, index=time)
+        return df
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(load_dataset)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            raise TimeoutError(f"Loading dataset timed out after {timeout} seconds")
+
+def get_monthly_data(month, year):
+    two_digit_month = str(month).zfill(2)
+    mounth_ds = []
+    for day in tqdm(range(1, 32), desc=f"Fetching Datasets for {year}-{month}", unit="day"):
+        try:
+            two_digit_day = str(day).zfill(2)
+            opendap_url = f"dust.aemet.es/thredds/dodsC/dataRoot/{MODEL}/{year}/{two_digit_month}/" \
+                          f"{year}{two_digit_month}{two_digit_day}{model_code}.nc"
+            url = f"https://{username}:{password}@{opendap_url}"
+            # Open the dataset with a timeout
+            df = fetch_dataset_with_timeout(url,year, month, day, timeout=20)  # 10-second timeout
+            mounth_ds.append(df)
+        except Exception as e:
+            # Handle exceptions (e.g., network errors, missing files)
+            print(f"Failed to process dataset for day {two_digit_day}: {e}")
+    # aligned_datasets = xr.align(*mounth_ds, join="outer")  # or "inner"
+    # combined_ds = xr.concat(aligned_datasets, dim="time")
+    combined_df = pd.concat(mounth_ds, axis=0)
+    # end_time = datetime.now()
+    # execution_time = (end_time - start_time).total_seconds()
+    # print(f"Execution time: {execution_time} seconds")
+    # dry_dust_data = combined_ds[DRY_DUST].values
+    # wet_dust_data = combined_ds[WET_DUST].values
+    # time = combined_ds["time"].values
+    # df = pd.DataFrame({
+    #     f"{DRY_DUST}": dry_dust_data,
+    #     f"{WET_DUST}": wet_dust_data,
+    #     "total_dust": wet_dust_data + dry_dust_data
+    # }, index=time)
+    return combined_df
+
+def get_data():
+    years_dfs = []
+    for year in range(2018, 2019):
+        yearly_dfs = []
+        for month in range(1,13):
+            monthly_df = get_monthly_data(month, year)
+            yearly_dfs.append(monthly_df)
+        year_df = pd.concat(yearly_dfs, axis=0)
+        years_dfs.append(year_df)
+    return pd.concat(years_dfs, axis=0)
+    # return dry_dust_data, wet_dust_data, time
 
 
-def plot_graph(dry_values, wet_values, time):
+def plot_graph(df, title):
+    describe_stats = df.describe()
     fig = go.Figure()
-
     # Add dry dust bars
-    fig.add_trace(go.Bar(x=time, y=dry_values, name="Dry Dust", marker_color="blue"))
+    fig.add_trace(go.Bar(x=df.index, y=df.dust_depd, name="Dry Dust", marker_color="blue"))
 
     # Add wet dust bars
-    fig.add_trace(go.Bar(x=time, y=wet_values, name="Wet Dust", marker_color="green"))
+    fig.add_trace(go.Bar(x=df.index, y=df.dust_depw, name="Wet Dust", marker_color="green"))
 
     # Customize layout
     fig.update_layout(
         barmode="group",  # Group bars side by side
-        title=f"Dust Data at lat={specific_lat:.1f}, lon={specific_lon:.1f}",
+        title=title,
         xaxis_title="Time",
         yaxis_title="Dust Concentration",
         legend_title="Legend",
@@ -103,9 +146,10 @@ def show_map_choose_lat_lon():
 
 
 if __name__ == '__main__':
-    dry_dust_data, wet_dust_data, time = get_data()
+    df_year = get_data()
+    print()
     # longitude, latitude = show_map_choose_lat_lon()
-    plot_graph(dry_dust_data, wet_dust_data, time)
+    # plot_graph(dry_dust_data, wet_dust_data, time)
 
 
 
