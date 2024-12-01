@@ -1,6 +1,7 @@
 username = 'michael.gilmont'  # replace with your username
 password = 'Xeimae7u'  # replace with your password
 MODEL = 'MONARCH'
+DATA_PATH = './data/'
 # YEAR = 2023
 # MONTH = 10
 # DAY = 31

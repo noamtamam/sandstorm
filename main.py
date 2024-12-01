@@ -8,8 +8,9 @@ from map import *
 from matplotlib.ticker import MultipleLocator
 from tqdm import tqdm
 import concurrent.futures
+import os
 
-def fetch_dataset_with_timeout(url,year, month, day, timeout=10):
+def fetch_dataset_with_timeout(url,year, month, day, lat, lon, timeout=10):
     """Attempt to open a dataset with a timeout."""
     def load_dataset():
         ds = xr.open_dataset(url)
@@ -17,7 +18,7 @@ def fetch_dataset_with_timeout(url,year, month, day, timeout=10):
         start_datetime = datetime(year, month, day, HOUR_START, 0, 0)
         end_datetime = pd.to_timedelta(23, unit="h") + start_datetime
         ds = ds.sel(time=slice(start_datetime, end_datetime))
-        nearest_data = ds.sel(lat=specific_lat, lon=specific_lon, method="nearest")
+        nearest_data = ds.sel(lat=lat, lon=lon, method="nearest")
         dry_dust_data = nearest_data[DRY_DUST].values
         wet_dust_data = nearest_data[WET_DUST].values
         time = nearest_data["time"].values
@@ -35,17 +36,27 @@ def fetch_dataset_with_timeout(url,year, month, day, timeout=10):
         except concurrent.futures.TimeoutError:
             raise TimeoutError(f"Loading dataset timed out after {timeout} seconds")
 
-def get_monthly_data(month, year):
+def get_monthly_data(month, year, lat, lon, path):
     two_digit_month = str(month).zfill(2)
+    month_path = f"{path}/{two_digit_month}"
+    create_folder(month_path)
     mounth_ds = []
     for day in tqdm(range(1, 32), desc=f"Fetching Datasets for {year}-{month}", unit="day"):
         try:
             two_digit_day = str(day).zfill(2)
-            opendap_url = f"dust.aemet.es/thredds/dodsC/dataRoot/{MODEL}/{year}/{two_digit_month}/" \
-                          f"{year}{two_digit_month}{two_digit_day}{model_code}.nc"
-            url = f"https://{username}:{password}@{opendap_url}"
-            # Open the dataset with a timeout
-            df = fetch_dataset_with_timeout(url,year, month, day, timeout=20)  # 10-second timeout
+            file_date = f"{year}{two_digit_month}{two_digit_day}"
+            file_path = f"{month_path}/{file_date}.pkl"
+            if os.path.exists(file_path):
+                print(f"File exists: {file_path}. Loading data...")
+                df = pd.read_pickle(file_path)
+            else:
+                print(f"File does not exist: {file_path}. Fetching data...")
+                opendap_url = f"dust.aemet.es/thredds/dodsC/dataRoot/{MODEL}/{year}/{two_digit_month}/" \
+                              f"{file_date}{model_code}.nc"
+                url = f"https://{username}:{password}@{opendap_url}"
+                # Open the dataset with a timeout
+                df = fetch_dataset_with_timeout(url,year, month, day, lat, lon, timeout=20)  # 10-second timeout
+                df.to_pickle(file_path)
             mounth_ds.append(df)
         except Exception as e:
             # Handle exceptions (e.g., network errors, missing files)
@@ -53,12 +64,21 @@ def get_monthly_data(month, year):
     combined_df = pd.concat(mounth_ds, axis=0)
     return combined_df
 
-def get_data():
+def create_folder(path):
+    # folder = os.path.dirname(path)
+    if not os.path.exists(path):
+        print(f"Creating folder: {path}")
+        os.makedirs(path, exist_ok=True)
+def get_data(lat, lon):
     years_dfs = []
+    lat_lon_path = f"{DATA_PATH}({lat},{lon})"
+    create_folder(lat_lon_path)
     for year in range(2018, 2019):
         yearly_dfs = []
+        year_path = f"{lat_lon_path}/{year}"
+        create_folder(year_path)
         for month in range(1,13):
-            monthly_df = get_monthly_data(month, year)
+            monthly_df = get_monthly_data(month, year, lat, lon, year_path)
             yearly_dfs.append(monthly_df)
         year_df = pd.concat(yearly_dfs, axis=0)
         years_dfs.append(year_df)
@@ -133,7 +153,7 @@ def show_map_choose_lat_lon():
 
 
 if __name__ == '__main__':
-    df_year = get_data()
+    df_year = get_data(specific_lat, specific_lon)
     print()
     # longitude, latitude = show_map_choose_lat_lon()
     # plot_graph(dry_dust_data, wet_dust_data, time)
