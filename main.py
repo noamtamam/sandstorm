@@ -16,6 +16,9 @@ def fetch_dataset_with_timeout(url,year, month, day, lat, lon, timeout=10):
         ds = xr.open_dataset(url)
         ds = ds[[DRY_DUST, WET_DUST]]
         start_datetime = datetime(year, month, day, HOUR_START, 0, 0)
+        if not np.issubdtype(ds.coords["time"].dtype, np.datetime64):
+            new_time = pd.to_timedelta(ds["time"], unit="h") + start_datetime
+            ds = ds.assign_coords(time=new_time)
         end_datetime = pd.to_timedelta(23, unit="h") + start_datetime
         ds = ds.sel(time=slice(start_datetime, end_datetime))
         nearest_data = ds.sel(lat=lat, lon=lon, method="nearest")
@@ -55,13 +58,16 @@ def get_monthly_data(month, year, lat, lon, path):
                               f"{file_date}{model_code}.nc"
                 url = f"https://{username}:{password}@{opendap_url}"
                 # Open the dataset with a timeout
-                df = fetch_dataset_with_timeout(url,year, month, day, lat, lon, timeout=20)  # 10-second timeout
+                df = fetch_dataset_with_timeout(url,year, month, day, lat, lon, timeout=30)  # 10-second timeout
                 df.to_pickle(file_path)
             mounth_ds.append(df)
         except Exception as e:
             # Handle exceptions (e.g., network errors, missing files)
             print(f"Failed to process dataset for day {two_digit_day}: {e}")
-    combined_df = pd.concat(mounth_ds, axis=0)
+    try:
+        combined_df = pd.concat(mounth_ds, axis=0)
+    except Exception as e:
+        print(f"No data for month: {month}")
     return combined_df
 
 def create_folder(path):
@@ -73,14 +79,15 @@ def get_data(lat, lon):
     years_dfs = []
     lat_lon_path = f"{DATA_PATH}({lat},{lon})"
     create_folder(lat_lon_path)
-    for year in range(2018, 2019):
+    for year in range(2018, 2025):
         yearly_dfs = []
         year_path = f"{lat_lon_path}/{year}"
         create_folder(year_path)
-        for month in range(1,13):
+        for month in range(1,13 ):
             monthly_df = get_monthly_data(month, year, lat, lon, year_path)
             yearly_dfs.append(monthly_df)
         year_df = pd.concat(yearly_dfs, axis=0)
+        year_df.to_pickle(f"{year_path}/{year}.pkl")
         years_dfs.append(year_df)
     return pd.concat(years_dfs, axis=0)
     # return dry_dust_data, wet_dust_data, time
